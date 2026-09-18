@@ -1,6 +1,11 @@
 import { createApp } from "./app.js";
-import { config } from "./config.js";
+import { config, getStaticBearerToken, getStaticClientId } from "./config.js";
+import { seedStaticClient } from "./state.js";
 import { log } from "./logger.js";
+
+seedStaticClient();
+if (getStaticClientId()) log.dev("static OAuth client active (skip DCR available)");
+if (getStaticBearerToken()) log.dev("static bearer token active");
 
 const app = createApp();
 app.listen(config.port, () => {

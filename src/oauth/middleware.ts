@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
-import { config } from "../config.js";
+import crypto from "node:crypto";
+import { config, getStaticBearerScopes, getStaticBearerToken } from "../config.js";
 import { state } from "../state.js";
 import { log } from "../logger.js";
 
@@ -15,6 +16,13 @@ declare global {
       devAuth?: DevAuthInfo;
     }
   }
+}
+
+function staticTokenMatch(presented: string, expected: string): boolean {
+  if (!expected) return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 export function resourceMetadataUrl(): string {
@@ -58,6 +66,21 @@ export function bearerAuth(requiredScopes: string[] = []) {
       return;
     }
     const token = header.slice("Bearer ".length).trim();
+
+    // Optional static bearer token (dev-only, e.g. Mock API `token` field).
+    // Checked before the OAuth store; scenario-forced failures above still win.
+    if (staticTokenMatch(token, getStaticBearerToken())) {
+      if (state.scenario === "static_token_rejected") {
+        log.mcp("authentication failure: static token rejected (scenario)");
+        challenge(res, 401, { error: "invalid_token", description: "static token rejected" });
+        return;
+      }
+      req.devAuth = { clientId: "static-token", scopes: getStaticBearerScopes() };
+      log.mcp("authenticated: static-token");
+      next();
+      return;
+    }
+
     const record = state.accessTokens.get(token);
 
     const expired =

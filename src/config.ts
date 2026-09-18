@@ -35,3 +35,32 @@ export const config = {
 
 export const SCOPES = ["mcp:tools", "test:protected"] as const;
 export type Scope = (typeof SCOPES)[number];
+
+// Optional static credentials (dev-only). Read live from process.env (not
+// frozen) so tests and re-seeding observe current values.
+export function getStaticBearerToken(): string {
+  return (process.env.STATIC_BEARER_TOKEN ?? "").trim();
+}
+
+export function getStaticBearerScopes(): string[] {
+  const raw = process.env.STATIC_BEARER_SCOPES;
+  const scopes = raw
+    ? raw.split(",").map((s) => s.trim()).filter(Boolean)
+    : [...SCOPES];
+  return scopes.length > 0 ? scopes : [...SCOPES];
+}
+
+export function getStaticClientId(): string {
+  return (process.env.STATIC_OAUTH_CLIENT_ID ?? "").trim();
+}
+
+export function getStaticClientSecret(): string | undefined {
+  const s = (process.env.STATIC_OAUTH_CLIENT_SECRET ?? "").trim();
+  return s ? s : undefined;
+}
+
+export function getStaticClientRedirectUris(): string[] {
+  const raw = process.env.STATIC_OAUTH_REDIRECT_URIS;
+  if (raw) return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return [config.mockApiCallbackUrl];
+}

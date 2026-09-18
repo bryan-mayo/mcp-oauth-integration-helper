@@ -46,6 +46,17 @@ Unauthenticated requests get `401 + WWW-Authenticate: Bearer
 resource_metadata=".../.well-known/oauth-protected-resource"`.
 `GET/DELETE /mcp` return `405` (stateless server, no SSE stream to resume).
 
+Three credential modes (independent, can coexist):
+
+| Mock API field | Server side | Flow |
+| --- | --- | --- |
+| `token` | `STATIC_BEARER_TOKEN` env | Static bearer, accepted as-is. Never expires, no refresh. |
+| `oauth_client_id` empty | Automatic | Mock API calls `POST /oauth/register` (DCR) during `oauth/start`. |
+| `oauth_client_id` (+`secret`) set | `STATIC_OAUTH_CLIENT_ID` (+`SECRET`) env | Skip-DCR: pre-provisioned client, full authorize/PKCE/token flow without any register call. |
+
+The static bearer token is checked before the OAuth token store (timing-safe
+compare); scenario-forced `mcp_unauthorized`/`mcp_forbidden` still win over both.
+
 ## 5. OAuth discovery endpoints
 
 ```text
@@ -64,7 +75,9 @@ GET /oauth/authorize/approve?tx=...   (dev consent page button)
 GET /oauth/authorize/deny?tx=...
 ```
 
-Renders a dev consent page (`Authorize` / `Deny`). Approve issues a random,
+Renders a dev consent page (`Authorize` / `Deny`). The `client_id` must have
+been registered via `POST /oauth/register` **or** pre-provisioned with
+`STATIC_OAUTH_CLIENT_ID` (skip-DCR). Approve issues a random,
 short-lived, single-use code bound to `{client, redirect_uri, scopes,
 resource, PKCE challenge}` and redirects to the client's `redirect_uri` with
 `?code=...&state=...&iss=...` (RFC9207). Deny redirects with
@@ -109,8 +122,8 @@ GET  /__dev/scenario
 
 `normal`, `oauth_denied`, `oauth_error`, `invalid_authorization_code`,
 `expired_authorization_code`, `invalid_pkce`, `token_expired`,
-`refresh_token_expired`, `refresh_token_rejected`, `mcp_unauthorized`,
-`mcp_forbidden`, `mcp_initialization_failure`, `mcp_unavailable`,
+`refresh_token_expired`, `refresh_token_rejected`, `static_token_rejected`,
+`mcp_unauthorized`, `mcp_forbidden`, `mcp_initialization_failure`, `mcp_unavailable`,
 `tools_empty`, `tools_list_failure`, `tool_execution_failure`, `slow_mcp`.
 Each produces real protocol behaviour (real 401/403/503, real JSON-RPC
 errors, real `invalid_grant`), not a custom error API. Dashboard: `GET /__dev`.
@@ -124,13 +137,25 @@ See `.env.example`. `PORT` (4100), `MCP_SERVER_URL`, `ISSUER_URL`,
 (`http://localhost:3000/mcp/callback`), `ACCESS_TOKEN_TTL` (set `10` to test
 refresh), `REFRESH_TOKEN_TTL`, `AUTH_CODE_TTL`.
 
+Static auth (both optional, dev-only, empty = disabled):
+
+```env
+STATIC_BEARER_TOKEN=<hex>                  # Mock API `token` field value
+STATIC_BEARER_SCOPES=mcp:tools test:protected
+STATIC_OAUTH_CLIENT_ID=dev-static-client   # Mock API `oauth_client_id` value
+STATIC_OAUTH_CLIENT_SECRET=                # empty = public client (PKCE only)
+STATIC_OAUTH_REDIRECT_URIS=                # default: MOCK_API_CALLBACK_URL
+```
+
+`GET /__dev/state` reports which modes are active under `authModes`.
+
 ## 12. How to start the server
 
 ```bash
 npm install
 cp .env.example .env   # adjust ports/URLs
 npm run dev            # or: npm run build && npm start
-npm test               # 15 HTTP integration tests
+npm test               # 22 HTTP integration tests
 ```
 
 ## 13. How to configure the existing Mock API to connect to it
@@ -144,8 +169,15 @@ npm test               # 15 HTTP integration tests
    tunnel URL.
 3. Leave `oauth_client_id/secret` empty so the Mock API uses dynamic client
    registration (`POST /oauth/register`); or pre-register and paste the id.
+   To skip DCR with stable values, set `STATIC_OAUTH_CLIENT_ID` (+ optional
+   `STATIC_OAUTH_CLIENT_SECRET`) here and paste the same values into the
+   Mock API's `oauth_client_id`/`oauth_client_secret` fields — no register
+   call needed.
 4. Set this server's `MOCK_API_CALLBACK_URL` to the exact `redirect_uri` the
    Mock API sends (the value returned by `POST /mcp_servers/{id}/oauth/start`).
+5. To test the static-token path instead of OAuth, set `STATIC_BEARER_TOKEN`
+   here and paste the same value into the Mock API's `token` field — MCP
+   calls then authenticate without any OAuth flow.
 
 ## 14. How to run the complete OAuth popup flow from the frontend
 
@@ -176,7 +208,11 @@ POST /__dev/expire   # expire one/all access tokens: {"token": "..."} or {}
 
 ## 17. Known limitations
 
-* In-memory state only; restart or `/__dev/reset` wipes everything.
+* In-memory state only; restart or `/__dev/reset` wipes everything — except
+  the static OAuth client, which is re-seeded from env on reset. DCR
+  registrations are lost on reset/restart.
+* Static bearer token never expires and cannot be refreshed (use
+  `static_token_rejected` to simulate failure).
 * Single fake user (`dev-user`); no real accounts, no login.
 * Opaque dev tokens (no JWT/introspection endpoint).
 * Stateless MCP transport: no SSE push, no resumable streams, no

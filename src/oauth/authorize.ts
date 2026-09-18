@@ -55,7 +55,9 @@ export function registerAuthorizeRoutes(app: Express) {
 
     const client = state.clients.get(clientId);
     if (!client) {
-      res.status(400).send("unknown client_id: register via POST /oauth/register first");
+      res
+        .status(400)
+        .send("unknown client_id: register via POST /oauth/register first, or set STATIC_OAUTH_CLIENT_ID to skip DCR");
       return;
     }
     if (responseType !== "code" || !redirectUri || !challenge || method !== "S256") {

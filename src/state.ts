@@ -51,6 +51,7 @@ export const SUPPORTED_SCENARIOS = [
   "token_expired",
   "refresh_token_expired",
   "refresh_token_rejected",
+  "static_token_rejected",
   "mcp_unauthorized",
   "mcp_forbidden",
   "mcp_initialization_failure",
@@ -100,10 +101,38 @@ class State {
     this.pending.clear();
     this.counters = freshCounters();
     this.scenario = "normal";
+    seedStaticClient(this);
   }
 }
 
 export const state = new State();
+
+/**
+ * Pre-provisioned OAuth client for the skip-DCR flow (opt-in via
+ * STATIC_OAUTH_CLIENT_ID). Simulates an app registered out-of-band, so the
+ * Mock API can paste oauth_client_id/secret without calling /oauth/register.
+ * Re-applied on reset so the static client survives /__dev/reset.
+ */
+export function seedStaticClient(target: State = state): void {
+  const id = (process.env.STATIC_OAUTH_CLIENT_ID ?? "").trim();
+  if (!id) return;
+  const secret = (process.env.STATIC_OAUTH_CLIENT_SECRET ?? "").trim() || undefined;
+  const rawUris = process.env.STATIC_OAUTH_REDIRECT_URIS;
+  const fallbackCb =
+    process.env.MOCK_API_CALLBACK_URL ??
+    "http://localhost:4000/backend/webhook/mcp_servers/oauth/callback";
+  const redirectUris = rawUris
+    ? rawUris.split(",").map((s) => s.trim()).filter(Boolean)
+    : [fallbackCb];
+  const existing = target.clients.get(id);
+  target.clients.set(id, {
+    clientId: id,
+    clientSecret: secret,
+    redirectUris: redirectUris.length > 0 ? redirectUris : [fallbackCb],
+    clientName: "static (skip DCR)",
+    createdAt: existing?.createdAt ?? Date.now(),
+  });
+}
 
 export function randomToken(bytes = 32): string {
   return crypto.randomBytes(bytes).toString("hex");

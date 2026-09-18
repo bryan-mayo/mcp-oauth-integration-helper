@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { config } from "../config.js";
+import { config, getStaticBearerToken, getStaticClientId } from "../config.js";
 import { SUPPORTED_SCENARIOS, state, type Scenario } from "../state.js";
 import { log } from "../logger.js";
 
@@ -44,6 +44,11 @@ export function registerDevRoutes(app: Express) {
       counters: state.counters,
       clients: state.clients.size,
       pendingAuths: state.pending.size,
+      authModes: {
+        oauthDcr: true,
+        staticBearer: getStaticBearerToken() !== "",
+        staticClient: getStaticClientId() !== "",
+      },
     });
   });
 
